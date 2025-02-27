@@ -67,7 +67,3 @@ This application enables real-time translation of medical text using Hugging Fac
 2. Go to your profile settings and navigate to the "Access Tokens" section
 3. Generate a new token with read access
 4. Use this token as your `HUGGINGFACE_API_KEY`
-
-## Deployment Considerations
-
-For production
