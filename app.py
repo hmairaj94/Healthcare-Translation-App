@@ -12,7 +12,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("app.log"),
+        logging.FileHandler("app.log") if not os.environ.get('VERCEL_ENV') else logging.StreamHandler(),
         logging.StreamHandler()
     ]
 )
@@ -22,38 +22,37 @@ app = Flask(__name__)
 # In production, use a properly secured secret key stored in environment variables
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
-# Ollama API configuration
-OLLAMA_URL = "http://localhost:11434/api/generate"
-TRANSLATION_TIMEOUT = 60  # seconds
+# Hugging Face API configuration
+HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/"
+HUGGINGFACE_API_KEY = os.environ.get('HUGGINGFACE_API_KEY')  # Set this in your Vercel environment variables
+TRANSLATION_TIMEOUT = 15  # seconds (slightly longer for external API)
 
-"""
-SECURITY CONSIDERATIONS:
-------------------------
-1. Data Privacy (HIPAA Compliance):
-   - In production, this app would need proper SSL/TLS encryption (HTTPS)
-   - No PHI (Protected Health Information) should be stored persistently
-   - All data should be encrypted at rest and in transit
-   - User session management with proper timeout
-   
-2. Rate Limiting:
-   - Implemented basic rate limiting to prevent API abuse
-   
-3. Input Validation:
-   - All user inputs are validated before processing
-   
-4. Error Handling:
-   - Errors are logged but details are not exposed to users
-   
-5. Audit Trail:
-   - In production, would implement logging of all translation requests
-     while sanitizing PHI from logs
-     
-6. Data Minimization:
-   - Only essential data is processed and nothing is retained longer than needed
-"""
+# Map of target languages to appropriate Hugging Face models
+LANGUAGE_MODEL_MAP = {
+    "English": "Helsinki-NLP/opus-mt-mul-en",  # multilingual to English
+    "Spanish": "Helsinki-NLP/opus-mt-en-es",   # English to Spanish
+    "French": "Helsinki-NLP/opus-mt-en-fr",    # English to French
+    "German": "Helsinki-NLP/opus-mt-en-de",    # English to German
+    "Chinese": "Helsinki-NLP/opus-mt-en-zh",   # English to Chinese
+    "Arabic": "Helsinki-NLP/opus-mt-en-ar",    # English to Arabic
+    "Hindi": "Helsinki-NLP/opus-mt-en-hi"      # English to Hindi
+}
+
+# Headers for Hugging Face API
+def get_hf_headers():
+    return {
+        "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
 # Simple rate limiting decorator
 def rate_limit(limit=5, per=60):
+    # Skip rate limiting on Vercel due to serverless nature
+    if os.environ.get('VERCEL_ENV'):
+        def wrapper(f):
+            return f
+        return wrapper
+        
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
@@ -96,14 +95,6 @@ def translate():
         text = data.get('text', '').strip()
         target_language = data.get('targetLanguage', 'Hindi')
         
-        # Session context tracking - store previous translations
-        if 'conversation_context' not in session:
-            session['conversation_context'] = []
-            
-        # Keep context window limited to last 5 exchanges
-        if len(session['conversation_context']) > 5:
-            session['conversation_context'] = session['conversation_context'][-5:]
-        
         # Input validation
         if not text:
             return jsonify({"error": "No text provided"}), 400
@@ -115,36 +106,22 @@ def translate():
         text_hash = hashlib.sha256(text.encode()).hexdigest()[:8]  # Create hash for logging
         logger.info(f"Translation request: {len(text)} chars, target: {target_language}, hash: {text_hash}")
         
-        # Create context from previous exchanges if available
-        context_str = ""
-        if session['conversation_context']:
-            context_str = "\nPrevious exchanges in this conversation:\n"
-            for i, exchange in enumerate(session['conversation_context']):
-                context_str += f"- Original ({i+1}): {exchange['original']}\n"
-                context_str += f"- Translation ({i+1}): {exchange['translation']}\n"
+        # Get the appropriate model for the target language
+        model_name = LANGUAGE_MODEL_MAP.get(target_language)
+        if not model_name:
+            return jsonify({"error": f"Unsupported target language: {target_language}"}), 400
         
-        # Enhanced medical-focused translation prompt with terminology guidance
-        prompt = f"""Translate the following healthcare text from English to {target_language}.
-        Focus on medical terminology accuracy but return ONLY the clean translated text.
-        Do not add any explanations, labels, or notes.
+        # Prepare medical context for better medical translations
+        # Adding medical context as a prefix to help guide the translation
+        medical_context = "Medical translation: "
+        input_text = medical_context + text
         
-        Common medical translation guidelines:
-        - Maintain clinical precision
-        - Preserve medical terms in their target language equivalent
-        - Ensure dosage information is accurately conveyed
-        - Maintain any numeric values exactly as presented
-        
-        Text to translate: "{text}"
-        """
-        # Call Ollama API with timeout
+        # Call Hugging Face API with timeout
         try:
             response = requests.post(
-                OLLAMA_URL,
-                json={
-                    "model": "mistral:latest",
-                    "prompt": prompt,
-                    "stream": False
-                },
+                f"{HUGGINGFACE_API_URL}{model_name}",
+                headers=get_hf_headers(),
+                json={"inputs": input_text},
                 timeout=TRANSLATION_TIMEOUT
             )
         except requests.exceptions.Timeout:
@@ -155,20 +132,24 @@ def translate():
             return jsonify({"error": "Translation service unavailable"}), 503
         
         if response.status_code != 200:
-            logger.error(f"Ollama API error: {response.status_code}, {response.text}")
+            logger.error(f"Hugging Face API error: {response.status_code}, {response.text}")
             return jsonify({"error": "Translation service error"}), 500
         
+        # Parse the response
         result = response.json()
-        translated_text = result.get('response', '').strip()
+        
+        # Extract the translated text from the response
+        # Hugging Face returns a list of translation objects
+        if isinstance(result, list) and len(result) > 0:
+            if isinstance(result[0], dict) and 'translation_text' in result[0]:
+                translated_text = result[0]['translation_text'].strip()
+            else:
+                translated_text = result[0].strip()
+        else:
+            translated_text = str(result).strip()
         
         if not translated_text:
             return jsonify({"error": "Empty translation result"}), 500
-        
-        # Add this exchange to context history
-        session['conversation_context'].append({
-            'original': text,
-            'translation': translated_text
-        })
         
         # Return translation
         return jsonify({
@@ -181,25 +162,34 @@ def translate():
         # Generic error message to user (avoid exposing implementation details)
         return jsonify({"error": "An error occurred during translation"}), 500
 
-@app.route('/api/reset-context', methods=['POST'])
-def reset_context():
-    try:
-        # Clear conversation context from session
-        if 'conversation_context' in session:
-            session['conversation_context'] = []
-            logger.info("Conversation context reset")
-        
-        return jsonify({"status": "success", "message": "Context reset successfully"}), 200
-    except Exception as e:
-        logger.error(f"Error resetting context: {str(e)}")
-        return jsonify({"error": "Failed to reset context"}), 500
-
-
 # Health check endpoint
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "ok"})
 
+# Model info endpoint
+@app.route('/api/models', methods=['GET'])
+def get_available_models():
+    return jsonify({
+        "availableLanguages": list(LANGUAGE_MODEL_MAP.keys()),
+        "provider": "Hugging Face Translation Models"
+    })
+
+# Vercel serverless function handler
+from http.server import BaseHTTPRequestHandler
+
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Healthcare Translator API is running. Use the web interface.')
+        
 if __name__ == '__main__':
+    # Check if API key is set
+    if not HUGGINGFACE_API_KEY:
+        logger.warning("HUGGINGFACE_API_KEY not set. Please set this environment variable.")
+    
     # In production, use a proper WSGI server and HTTPS
-    app.run(debug=False)  # Set to False in production
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=False)
