@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Healthcare Translator</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Add favicon for professional appearance -->
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}" type="image/x-icon">
+    <!-- Meta tags for security -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://cdn.jsdelivr.net;">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta name="referrer" content="no-referrer">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-blue-600">Healthcare Translation App</h1>
+            <p class="text-gray-600">Real-time translation for better patient communication</p>
+            <!-- Added security notice -->
+            <div class="mt-2 text-xs text-gray-500">
+                <span class="inline-block mr-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                </span>
+                Private & Secure: No data is stored or shared
+            </div>
+        </header>
+
+        <main class="max-w-lg mx-auto bg-white rounded-lg shadow-md overflow-hidden">
+            <!-- Connection status banner -->
+            <div id="connectionStatus" class="hidden bg-yellow-100 p-2 text-sm text-yellow-800 text-center"></div>
+            
+            <div class="p-6">
+                <!-- Language Selection -->
+                <div class="flex justify-between mb-6">
+                    <div class="w-5/12">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Source Language</label>
+                        <select id="sourceLanguage" class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <option value="en-US">English</option>
+                            <option value="es-ES">Spanish</option>
+                            <option value="fr-FR">French</option>
+                            <option value="de-DE">German</option>
+                            <option value="zh-CN">Chinese</option>
+                            <option value="ar-SA">Arabic</option>
+                            <option value="hi-IN">Hindi</option>
+                        </select>
+                    </div>
+                    <div class="w-5/12">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Target Language</label>
+                        <select id="targetLanguage" class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <option value="Spanish">Spanish</option>
+                            <option value="English">English</option>
+                            <option value="French">French</option>
+                            <option value="German">German</option>
+                            <option value="Chinese">Chinese</option>
+                            <option value="Arabic">Arabic</option>
+                            <option value="Hindi">Hindi</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Voice Recognition Section -->
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-lg font-medium text-gray-700">Original Text</h2>
+                        <div class="flex items-center">
+                            <!-- Added clear button -->
+                            <button id="clearButton" class="mr-2 p-2 rounded-full bg-gray-200 text-gray-600 hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <button id="recordButton" class="p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="recordingStatus" class="text-sm text-gray-500 mb-2 flex items-center">
+                        <span>Click the microphone to start recording</span>
+                        <!-- Added microphone permission indicator -->
+                        <span id="micPermission" class="ml-2 h-2 w-2 rounded-full bg-gray-300"></span>
+                    </div>
+                    <div id="transcript" class="p-3 bg-gray-100 rounded-md min-h-[100px] text-gray-800 transition-all duration-300"></div>
+                </div>
+
+                <!-- Translation Section -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-lg font-medium text-gray-700">Translated Text</h2>
+                        <button id="speakButton" class="p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2" disabled>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="translationLoading" class="hidden text-center p-4">
+                        <div class="animate-pulse">Translating...</div>
+                    </div>
+                    <div id="translatedText" class="p-3 bg-gray-100 rounded-md min-h-[100px] text-gray-800 transition-all duration-300"></div>
+                </div>
+                
+                <!-- Added medical disclaimer -->
+                <div class="mt-4 text-xs text-gray-500 italic">
+                    Note: This translation is for informational purposes only and should not replace professional medical interpretation services when making critical healthcare decisions.
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/speech.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/translation.js') }}"></script>
+    
+    <!-- Additional script for new functionality -->
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Check online status and update UI
+        function updateOnlineStatus() {
+            const connectionStatus = document.getElementById('connectionStatus');
+            if (navigator.onLine) {
+                connectionStatus.classList.add('hidden');
+            } else {
+                connectionStatus.textContent = 'You are offline. Some features may not work.';
+                connectionStatus.classList.remove('hidden');
+            }
+        }
+        
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        updateOnlineStatus();
+        
+        // Check microphone permissions
+        navigator.permissions.query({name: 'microphone'}).then(permissionStatus => {
+            const micIndicator = document.getElementById('micPermission');
+            
+            function updateMicStatus(status) {
+                if (status === 'granted') {
+                    micIndicator.classList.remove('bg-gray-300', 'bg-red-500');
+                    micIndicator.classList.add('bg-green-500');
+                } else if (status === 'denied') {
+                    micIndicator.classList.remove('bg-gray-300', 'bg-green-500');
+                    micIndicator.classList.add('bg-red-500');
+                } else {
+                    micIndicator.classList.remove('bg-green-500', 'bg-red-500');
+                    micIndicator.classList.add('bg-gray-300');
+                }
+            }
+            
+            updateMicStatus(permissionStatus.state);
+            permissionStatus.onchange = () => updateMicStatus(permissionStatus.state);
+        });
+        
+        // Add clear button functionality
+        const clearButton = document.getElementById('clearButton');
+        clearButton.addEventListener('click', () => {
+            document.getElementById('transcript').textContent = '';
+            document.getElementById('translatedText').textContent = '';
+            document.getElementById('speakButton').disabled = true;
+        });
+    });
+    </script>
+</body>
+</html>
